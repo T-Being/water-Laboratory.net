@@ -1,0 +1,263 @@
+---
+title: 简易算法部分
+description: "声灵 - 荷米斯"
+date: Sep 14 2021
+---
+
+智慧猪业—基于声纹识别的生猪疾病预警解决方案
+简易算法部分
+一、整体架构
+
+ 
+我们注意到主要流程：
+用麦克风手机音频发→用傅里叶去噪算法去噪→将音频进行一个分类→提取猪声→将猪声整个部分提取特征→把不健康猪声分类出来→通过病征判断病的种类
+二、针对其中重要部分进行算法分析
+1、傅里叶算法
+○1傅里叶变换有许多类型，通常不加前缀说的是连续傅里叶变换，离散傅里叶变换常用在计算机处理上，在此之上进行算法改进，降低时间复杂度，叫快速傅里叶变换。
+对于时域是周期性连续的函数进行变换叫傅里叶级数。
+	对于时域是非周期连续的函数进行变换叫傅里叶变换。
+傅里叶就提出了这句话：任何周期函数都由多个不同的正弦波（sin和cos）叠加构成（满足狄里赫利条件情况下）
+○2狄里赫利条件：
+属于傅里叶级数分析使用的条件：
+(1) 函数在任意有限区间内连续，或只有有限个第一类间断点（当t从左或右趋于这个间断点时，函数有有限的左极限和右极限）
+(2) 在一个周期内，函数有有限个极大值或极小值。
+(3) x(t)在单个周期内绝对可积，即 
+
+○3重点：
+1，从文件读取8000个音频数据，由于现实中的音频没有虚部，所以只设置实部。
+2，离散傅里叶变换关键处
+temp的re就是对应公式的cos，同理im就是对应的sin，每个X[k]进行累加求和 
+	for (int k = 0; k < N; k++)
+	{
+		X[k].re = 0;
+		X[k].im = 0;
+		for (int n = 0; n < N; n++)
+		{
+			temp.re = (float)cos(2 * pi*k*n / N);
+			temp.im = -(float)sin(2 * pi*k*n / N);
+			X[k] = complexadd(X[k], complexMult(x[n], temp));
+		}	
+	}
+幅度公式：
+ 
+○4完整代码（C语言）：
+ 
+#include <stdio.h>
+#include <math.h>
+#define N 8000//采样率 
+#define PI 3.1415926
+struct complex
+{
+    float re;
+    float im;
+};
+
+complex complexadd(complex a, complex b) { 
+    complex rt;
+    rt.re = a.re + b.re;
+    rt.im = a.im + b.im;
+    return rt;
+}
+
+complex complexMult(complex a, complex b) { 
+    complex rt;
+    rt.re = a.re*b.re - a.im*b.im;
+    rt.im = a.im*b.re + a.re*b.im;
+    return rt;
+}
+complex complexSet(complex *a, short *b, int N)
+{
+    for (int i = 0; i < N; i++)
+    {
+        a[i].re = b[i];
+        a[i].im = 0;
+    }
+}
+
+
+void dft(complex X[], complex x[], int N)
+{ 
+    complex temp;
+    int k, n;
+    for (int k = 0; k < N; k++)
+    {
+        X[k].re = 0;
+        X[k].im = 0;
+        for (int n = 0; n < N; n++)
+        {
+            temp.re = (float)cos(2 * PI*k*n / N);
+            temp.im = -(float)sin(2 * PI*k*n / N);
+            X[k] = complexadd(X[k], complexMult(x[n], temp));
+        }    
+        printf("%d ", int(2.0/N*sqrt(X[k].re*X[k].re + X[k].im*X[k].im)));
+
+        if (k >= 6000)
+        {
+            X[k].re = 0.0;
+            X[k].im = 0.0;
+        }
+    }
+}
+void idft(complex X[], complex x[], int N) {
+    complex temp;
+    for (int k = 0; k < N; k++)
+    {
+        x[k].re = 0;
+        x[k].im = 0;
+        for (int n = 0; n < N; n++)
+        {
+            temp.re = (float)cos(2 * PI*k*n / N);
+            temp.im = (float)sin(2 * PI*k*n / N);
+            x[k] = complexadd(x[k], complexMult(X[n], temp));
+        }
+        x[k].re /= N;
+        x[k].im /= N;
+    }
+}
+
+
+int main() {
+    complex samples[N], X[N], x[N];
+    FILE *fp;
+    FILE *fp2;
+    short buf[N];
+    int re=0;
+    fp=fopen("", "");
+    fp2 = fopen("", "");
+    if (!fp ||!fp2) {
+        printf("没有\n");
+        return 1;
+    }
+    else
+    {
+        while (fread(buf, sizeof(short)*N,1 , fp) > 0)
+        {
+            complexSet(samples, buf, N);
+            dft(X, samples, N);
+            idft(X, x, N);
+            for (int i = 0; i < N; i++)
+            {
+                buf[i] = x[i].re;
+            }
+            fwrite(buf, sizeof(short)*N,1 , fp2);
+        }
+    }
+    fclose(fp);
+    fclose(fp2);
+    return 0;
+}
+ 
+2、音频分类原理
+根据音频的MFCC特征进行音频分类。
+○1梅尔倒谱系数（Mel-scale Frequency Cepstral Coefficients，简称MFCC）是在Mel标度频率域提取出来的倒谱参数，Mel标度描述了人耳频率的非线性特性，它与频率的关系可用下式近似表示：
+        
+ 
+○2式中f为频率，单位为Hz。下图展示了Mel频率与线性频率的关系：
+ 
+
+○3MFCC特征参数（librosa）
+def qiuMFCC(wav_file_path): 
+y_ps, sr = librosa.load(wav_file_path, sr=None) 
+melspec = librosa.feature.melspectrogram(y_ps,sr, n_fft=1764, 	hop_length=882,n_mels=40) 
+mfccs = librosa.power_to_db(melspec) 
+print(mfccs.shape) 
+return mfccs
+3、声音的比较以及鉴别
+我的思路依然是通过MFCC特征来比较。
+
+原因：
+1）梅尔倒谱系数(MFCC)，MFCC 是利用人耳听觉模型建立的倒谱系数，人类的听觉系统可以看成-一个非线性系统，它对于不同的频率信号的灵敏度是不一样的，一般是对数型关系。
+正是由于Mel倒谱系数基于人耳感知这种特殊的特性，Mel倒谱系数在抗噪声能力以及鲁棒性（在异常和危险情况下系统生存的能力）这些方面都比其它特征参数要优秀了很多。
+2）提取此特征较为方便（librosa库就有），我们便能够轻松获得此特征，同时进行比较得出结论。
+方法和2、一样
+4、回归算法
+通过得到的测试音频数据和分析结果一一对应的关系，得到一些数据，我们通过这些数据进行回归算法得到一组关系，通过已得关系判断之后的各组解是否误差较大。
+   
+代码展示：
+from numpy import *
+import matplotlib.pylab as plt
+
+def loadDataSet(filename):
+    dataMat = []
+    labelMat = []
+    fr = open(filename)
+    for line in fr.readlines():
+        lineArr = []
+        curLine = line.strip().split('\t')
+        for i in range(2):
+            lineArr.append(float(curLine[i]))
+        dataMat.append(lineArr)
+        labelMat.append(float(curLine[-1]))
+
+def standRegres(xArr, yArr):
+    xMat = mat(xArr)
+    yMat = mat(yArr).T #.T转置
+
+    xTx = xMat.T * xMat
+    if linalg.det(xTx) == 0:
+        return
+   ws = xTx.I * (xMat.T * yMat) #.I 逆
+    return ws
+
+def regression1():
+    xArr, yArr = loadDataSet("data.txt")
+    xMat = mat(xArr)
+    yMat = mat(yArr)
+    ws = standRegres(xArr, yArr)
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.scatter(xMat[:,1].flatten().tolist(), yMat.T[:,0].flatten().A[0].tolist())
+    xCopy = xMat.copy()
+    xCopy.sort(0)
+    yHat = xCopy * ws
+    ax.plot(xCopy[:,1], yHat)
+    plt.show()
+
+
+
+
+
+
+
+ 
+
+
+（其中f文件改为wav文件位置即可）
+输出为一个矩阵[a * b]（a为帧数，b为每帧的MFCC系数）和 一个能量谱线（纵坐标为对应的中心频率f(m)
+ )
+ 
+MFCC提取思路：
+python读取语音调用wave模块
+nchannels: 声道数 1
+sampwidth：量化位数 2
+framerate：采样频率 8000
+nframes：采样点数 19000
+（这些东西我也不知道这样设置好不好，但是我看网上这样设置，我就这样设置吧）
+
+预加重
+目的：补偿高频分量的损失，提升高频分量
+H(z)=1−az −1
+
+变换后：
+y (t) = x(t) − ax(t−1)
+分帧，加窗
+分帧处理：由于语音信号是一个准稳态的信号,把它分成较短的帧,在每帧中可将其看做稳态信号,可用处理稳态信号的方法来处理。同时,为了使一帧与另一帧之间的参数能较平稳地过渡,在相邻两帧之间互相有部分重叠。
+
+加窗函数：加窗函数的目的是减少频域中的泄漏,将对每一帧语音乘以汉明窗或海宁窗。语音信号x(n)经预处理后为xi(m),其中下标i表示分帧后的第i帧。
+
+
+傅里叶变换
+X(i,k) = FFT (xi (m)）
+
+计算能量谱线
+E(i,k) = [X(i,k)]2
+
+梅尔滤波器
+（就是那个梅尔频率倒谱系数（MFCC））
+
+滤波器 m==24（网上说的24，我也不知道设置多少好）
+
+DCT（离散余弦变换）
+必有步骤
+
+
